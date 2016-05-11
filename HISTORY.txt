@@ -9,4 +9,11 @@
 
 * Created HISTORY.txt and made README reST compatible
 
+10.3
+----
+
+Forked this code to create LevenshteinMaxDist
+
+* Allow a distance threshold cutoff to be provided optionally to Levenshtein.distance. Refer to docs for details.
+
 

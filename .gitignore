@@ -32,3 +32,6 @@ dist
 __minitage__*
 src
 MANIFEST
+build/*
+dist/*
+*.egg-info

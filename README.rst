@@ -1,10 +1,11 @@
 .. contents ::
 
-Maintainer needed
--------------------
-
-I (Mikko Ohtamaa) am not currently maintaining this code. I just pulled in to Github for general good (was not available in public repo before).
-So if you file any issues I won't be looking into them.
+This version is modified for my own purposes to allow a cutoff to be specified to distance().
+If the optional cutoff value is specified, 
+Levenshtein distances are only returned if the two strings differ by at most the cutoff
+value: otherwise a value higher than the cutoff is returned, but this will not necessarily reflect the
+true distance. This is a small hack which can save time if you need to compare
+a lot of strings but are only interested in close matches.
 
 Introduction
 ------------
@@ -53,27 +54,18 @@ License
 Levenshtein can be copied and/or modified under the terms of GNU General
 Public License, see the file COPYING for full license text.
 
-History
--------
-
-This package was long missing from PyPi and available as source checkout only.
-We needed to restore this package for `Go Mobile for Plone <http://webandmobile.mfabrik.com>`_
-and `Pywurfl <http://celljam.net/>`_ projects which depend on this.
-
-The project is not under active development as far as the maintainer knows.
-
-Source code
------------
-
-* http://github.com/miohtama/python-Levenshtein/tree/
-
-Authors
+Original Authors
 -------
 
 * Maintainer: `Mikko Ohtamaa <http://opensourcehacker.com>`_ - I am not actively doing anything
   for this, please feel free take over PyPi and Github administration
 
 * David Necas (Yeti) <yeti at physics.muni.cz>
+
+Modifier
+--------
+
+Modified and named LeveshteinMaxDist by William Lees <william at lees.org.uk>
 
 
 

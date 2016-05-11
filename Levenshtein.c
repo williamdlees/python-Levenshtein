@@ -121,6 +121,7 @@
 #endif /* PY_MAJOR_VERSION */
 
 #include <assert.h>
+#include <limits.h>
 #include "Levenshtein.h"
 
 /* FIXME: inline avaliability should be solved in setup.py, somehow, or
@@ -197,7 +198,9 @@ static PyObject* subtract_edit_py(PyObject *self, PyObject *args);
   "\n" \
   "It supports both normal and Unicode strings, but can't mix them, all\n" \
   "arguments to a function (method) have to be of the same type (or its\n" \
-  "subclasses).\n"
+  "subclasses).\n" \
+	"This version modified by William Lees to add a distance cutoff to distance()." \
+	"See below for details.\n" 
 
 #define distance_DESC \
   "Compute absolute Levenshtein distance of two strings.\n" \
@@ -214,7 +217,12 @@ static PyObject* subtract_edit_py(PyObject *self, PyObject *args);
   ">>> distance('Levenshtein', 'Levenshtein')\n" \
   "0\n" \
   "\n" \
-  "Yeah, we've managed it at last.\n"
+  "Yeah, we've managed it at last.\n" \
+	">>> distance('Levenshtein', 'Heisenberg', 5)" \
+	"6\n" \
+	"Here, for efficiency's sake, we have said we only want\n" \
+	"to know the distance if it is 5 or less. In this case it" \
+	"isn't, so the function returns a value higher than the cutoff."
 
 #define ratio_DESC \
   "Compute similarity of two strings.\n" \
@@ -546,8 +554,9 @@ static PyObject* subtract_edit_py(PyObject *self, PyObject *args);
   "'scotsman'\n" \
 
 #define METHODS_ITEM(x) { #x, x##_py, METH_VARARGS, x##_DESC }
+#define METHODS_ITEM_WITHKEYS(x) { #x, (PyCFunction) x##_py, METH_VARARGS|METH_KEYWORDS, x##_DESC }
 static PyMethodDef methods[] = {
-  METHODS_ITEM(distance),
+  METHODS_ITEM_WITHKEYS(distance),
   METHODS_ITEM(ratio),
   METHODS_ITEM(hamming),
   METHODS_ITEM(jaro),
@@ -679,9 +688,11 @@ levenshtein_common(PyObject *args, const char *name, size_t xcost,
                    size_t *lensum)
 {
   PyObject *arg1, *arg2;
-  size_t len1, len2;
-
-  if (!PyArg_UnpackTuple(args, PYARGCFIX(name), 2, 2, &arg1, &arg2))
+  size_t len1, len2, dist;
+	
+	dist = 0;
+	
+  if (!PyArg_ParseTuple(args, "OO|i", &arg1, &arg2, &dist))
     return -1;
 
   if (PyObject_TypeCheck(arg1, &PyString_Type)
@@ -694,7 +705,7 @@ levenshtein_common(PyObject *args, const char *name, size_t xcost,
     string1 = PyString_AS_STRING(arg1);
     string2 = PyString_AS_STRING(arg2);
     {
-      size_t d = lev_edit_distance(len1, string1, len2, string2, xcost);
+      size_t d = lev_edit_distance(len1, string1, len2, string2, xcost, dist);
       if (d == (size_t)(-1)) {
         PyErr_NoMemory();
         return -1;
@@ -712,7 +723,7 @@ levenshtein_common(PyObject *args, const char *name, size_t xcost,
     string1 = PyUnicode_AS_UNICODE(arg1);
     string2 = PyUnicode_AS_UNICODE(arg2);
     {
-      size_t d = lev_u_edit_distance(len1, string1, len2, string2, xcost);
+      size_t d = lev_u_edit_distance(len1, string1, len2, string2, xcost, dist);
       if (d == (size_t)(-1)) {
         PyErr_NoMemory();
         return -1;
@@ -2041,12 +2052,12 @@ subtract_edit_py(PyObject *self, PyObject *args)
 }
 
 
-PY_MOD_INIT_FUNC_DEF(Levenshtein)
+PY_MOD_INIT_FUNC_DEF(LevenshteinMaxDist)
 {
   PyObject *module;
   size_t i;
 
-  PY_INIT_MOD(module, "Levenshtein", Levenshtein_DESC, methods)
+  PY_INIT_MOD(module, "LevenshteinMaxDist", Levenshtein_DESC, methods)
   /* create intern strings for edit operation names */
   if (opcode_names[0].pystring)
     abort();
@@ -2183,13 +2194,13 @@ lev_init_rng(unsigned long int seed)
 _LEV_STATIC_PY size_t
 lev_edit_distance(size_t len1, const lev_byte *string1,
                   size_t len2, const lev_byte *string2,
-                  int xcost)
+                  int xcost, int cutoff_dist)
 {
-  size_t i;
+  size_t i, foo;
   size_t *row;  /* we only need to keep one row of costs */
   size_t *end;
   size_t half;
-
+	
   /* strip common prefix */
   while (len1 > 0 && len2 > 0 && *string1 == *string2) {
     len1--;
@@ -2272,6 +2283,7 @@ lev_edit_distance(size_t len1, const lev_byte *string1,
       const lev_byte char1 = string1[i - 1];
       const lev_byte *char2p;
       size_t D, x;
+			int min_dist = INT_MAX;
       /* skip the upper triangle */
       if (i >= len1 - half) {
         size_t offset = i - (len1 - half);
@@ -2286,6 +2298,8 @@ lev_edit_distance(size_t len1, const lev_byte *string1,
         if (x > c3)
           x = c3;
         *(p++) = x;
+				if(x < min_dist)
+					min_dist = x;
       }
       else {
         p = row + 1;
@@ -2293,8 +2307,9 @@ lev_edit_distance(size_t len1, const lev_byte *string1,
         D = x = i;
       }
       /* skip the lower triangle */
-      if (i <= half + 1)
+      if (i <= half + 1) {
         end = row + len2 + i - half - 2;
+			}
       /* main */
       while (p <= end) {
         size_t c3 = --D + (char1 != *(char2p++));
@@ -2306,6 +2321,8 @@ lev_edit_distance(size_t len1, const lev_byte *string1,
         if (x > D)
           x = D;
         *(p++) = x;
+				if(x < min_dist)
+					min_dist = x;
       }
       /* lower triangle sentinel */
       if (i <= half) {
@@ -2315,6 +2332,11 @@ lev_edit_distance(size_t len1, const lev_byte *string1,
           x = c3;
         *p = x;
       }
+			if(cutoff_dist > 0 && min_dist > cutoff_dist)
+			{
+				free(row);
+				return cutoff_dist+1;
+			}
     }
   }
 
@@ -2334,7 +2356,7 @@ lev_edit_distance_sod(size_t len, const lev_byte *string,
   double sum = 0.0;
 
   for (i = 0; i < n; i++) {
-    d = lev_edit_distance(len, string, lengths[i], strings[i], xcost);
+    d = lev_edit_distance(len, string, lengths[i], strings[i], xcost, 0);
     if (d == (size_t)-1)
       return -1.0;
     sum += weights[i]*d;
@@ -2360,7 +2382,7 @@ lev_edit_distance_sod(size_t len, const lev_byte *string,
 _LEV_STATIC_PY size_t
 lev_u_edit_distance(size_t len1, const lev_wchar *string1,
                     size_t len2, const lev_wchar *string2,
-                    int xcost)
+                    int xcost, int cutoff_dist)
 {
   size_t i;
   size_t *row;  /* we only need to keep one row of costs */
@@ -2418,7 +2440,7 @@ lev_u_edit_distance(size_t len1, const lev_wchar *string1,
   for (i = 0; i < len2 - (xcost ? 0 : half); i++)
     row[i] = i;
 
-  /* go through the matrix and compute the costs.  yes, this is an extremely
+		/* go through the matrix and compute the costs.  yes, this is an extremely
    * obfuscated version, but also extremely memory-conservative and relatively
    * fast.  */
   if (xcost) {
@@ -2451,6 +2473,7 @@ lev_u_edit_distance(size_t len1, const lev_wchar *string1,
       const lev_wchar char1 = string1[i - 1];
       const lev_wchar *char2p;
       size_t D, x;
+			int min_dist = INT_MAX;
       /* skip the upper triangle */
       if (i >= len1 - half) {
         size_t offset = i - (len1 - half);
@@ -2465,6 +2488,8 @@ lev_u_edit_distance(size_t len1, const lev_wchar *string1,
         if (x > c3)
           x = c3;
         *(p++) = x;
+				if(x < min_dist)
+					min_dist = x;
       }
       else {
         p = row + 1;
@@ -2485,6 +2510,8 @@ lev_u_edit_distance(size_t len1, const lev_wchar *string1,
         if (x > D)
           x = D;
         *(p++) = x;
+				if(x < min_dist)
+					min_dist = x;
       }
       /* lower triangle sentinel */
       if (i <= half) {
@@ -2494,6 +2521,11 @@ lev_u_edit_distance(size_t len1, const lev_wchar *string1,
           x = c3;
         *p = x;
       }
+			if(cutoff_dist > 0 && min_dist > cutoff_dist)
+			{
+				free(row);
+				return cutoff_dist+1;
+			}
     }
   }
 
@@ -2513,7 +2545,7 @@ lev_u_edit_distance_sod(size_t len, const lev_wchar *string,
   double sum = 0.0;
 
   for (i = 0; i < n; i++) {
-    d = lev_u_edit_distance(len, string, lengths[i], strings[i], xcost);
+    d = lev_u_edit_distance(len, string, lengths[i], strings[i], xcost, 0);
     if (d == (size_t)-1)
       return -1.0;
     sum += weights[i]*d;
@@ -4473,7 +4505,7 @@ lev_set_median_index(size_t n, const size_t *lengths,
       if (distances[dindex] >= 0)
         d = distances[dindex];
       else {
-        d = lev_edit_distance(lengths[j], strings[j], leni, stri, 0);
+        d = lev_edit_distance(lengths[j], strings[j], leni, stri, 0, 0);
         if (d < 0) {
           free(distances);
           return (size_t)-1;
@@ -4487,7 +4519,7 @@ lev_set_median_index(size_t n, const size_t *lengths,
     while (j < n && dist < mindist) {
       size_t dindex = (j - 1)*(j - 2)/2 + i;
       distances[dindex] = lev_edit_distance(lengths[j], strings[j],
-                                            leni, stri, 0);
+                                            leni, stri, 0, 0);
       if (distances[dindex] < 0) {
         free(distances);
         return (size_t)-1;
@@ -4546,7 +4578,7 @@ lev_u_set_median_index(size_t n, const size_t *lengths,
       if (distances[dindex] >= 0)
         d = distances[dindex];
       else {
-        d = lev_u_edit_distance(lengths[j], strings[j], leni, stri, 0);
+        d = lev_u_edit_distance(lengths[j], strings[j], leni, stri, 0, 0);
         if (d < 0) {
           free(distances);
           return (size_t)-1;
@@ -4560,7 +4592,7 @@ lev_u_set_median_index(size_t n, const size_t *lengths,
     while (j < n && dist < mindist) {
       size_t dindex = (j - 1)*(j - 2)/2 + i;
       distances[dindex] = lev_u_edit_distance(lengths[j], strings[j],
-                                              leni, stri, 0);
+                                              leni, stri, 0, 0);
       if (distances[dindex] < 0) {
         free(distances);
         return (size_t)-1;
@@ -4755,7 +4787,7 @@ lev_edit_seq_distance(size_t n1, const size_t *lengths1,
       if (l == 0)
         q = D;
       else {
-        size_t d = lev_edit_distance(len1, str1, *(len2p++), *(str2p++), 1);
+        size_t d = lev_edit_distance(len1, str1, *(len2p++), *(str2p++), 1, 0);
         if (d == (size_t)(-1)) {
           free(row);
           return -1.0;
@@ -4875,7 +4907,7 @@ lev_u_edit_seq_distance(size_t n1, const size_t *lengths1,
       if (l == 0)
         q = D;
       else {
-        size_t d = lev_u_edit_distance(len1, str1, *(len2p++), *(str2p++), 1);
+        size_t d = lev_u_edit_distance(len1, str1, *(len2p++), *(str2p++), 1, 0);
         if (d == (size_t)(-1)) {
           free(row);
           return -1.0;
@@ -4963,7 +4995,7 @@ lev_set_distance(size_t n1, const size_t *lengths1,
       if (l == 0)
         *(r++) = 0.0;
       else {
-        size_t d = lev_edit_distance(len2, str2, *(len1p++), *(str1p)++, 1);
+        size_t d = lev_edit_distance(len2, str2, *(len1p++), *(str1p)++, 1, 0);
         if (d == (size_t)(-1)) {
           free(r);
           return -1.0;
@@ -4986,7 +5018,7 @@ lev_set_distance(size_t n1, const size_t *lengths1,
     l = lengths1[j] + lengths2[i];
     if (l > 0) {
       size_t d = lev_edit_distance(lengths1[j], strings1[j],
-                                   lengths2[i], strings2[i], 1);
+                                   lengths2[i], strings2[i], 1, 0);
       if (d == (size_t)(-1)) {
         free(map);
         return -1.0;
@@ -5063,7 +5095,7 @@ lev_u_set_distance(size_t n1, const size_t *lengths1,
       if (l == 0)
         *(r++) = 0.0;
       else {
-        size_t d = lev_u_edit_distance(len2, str2, *(len1p++), *(str1p)++, 1);
+        size_t d = lev_u_edit_distance(len2, str2, *(len1p++), *(str1p)++, 1, 0);
         if (d == (size_t)(-1)) {
           free(r);
           return -1.0;
@@ -5086,7 +5118,7 @@ lev_u_set_distance(size_t n1, const size_t *lengths1,
     l = lengths1[j] + lengths2[i];
     if (l > 0) {
       size_t d = lev_u_edit_distance(lengths1[j], strings1[j],
-                                     lengths2[i], strings2[i], 1);
+                                     lengths2[i], strings2[i], 1, 0);
       if (d == (size_t)(-1)) {
         free(map);
         return -1.0;
