@@ -705,7 +705,7 @@ levenshtein_common(PyObject *args, const char *name, size_t xcost,
     string1 = PyString_AS_STRING(arg1);
     string2 = PyString_AS_STRING(arg2);
     {
-      size_t d = lev_edit_distance(len1, string1, len2, string2, xcost, dist);
+			size_t d = lev_edit_distance(len1, string1, len2, string2, xcost, dist);
       if (d == (size_t)(-1)) {
         PyErr_NoMemory();
         return -1;
@@ -2196,10 +2196,16 @@ lev_edit_distance(size_t len1, const lev_byte *string1,
                   size_t len2, const lev_byte *string2,
                   int xcost, int cutoff_dist)
 {
-  size_t i, foo;
+  size_t i;
   size_t *row;  /* we only need to keep one row of costs */
   size_t *end;
   size_t half;
+	
+	if(cutoff_dist > 0) {
+		/* If the length difference exceeds the cutoff, we can deduce the answer right now. */
+		if(abs(len1-len2) > cutoff_dist)
+			return cutoff_dist + 1;
+	}
 	
   /* strip common prefix */
   while (len1 > 0 && len2 > 0 && *string1 == *string2) {
