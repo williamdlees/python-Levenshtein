@@ -2203,8 +2203,10 @@ lev_edit_distance(size_t len1, const lev_byte *string1,
 	
 	if(cutoff_dist > 0) {
 		/* If the length difference exceeds the cutoff, we can deduce the answer right now. */
-		if(abs(len1-len2) > cutoff_dist)
+		if(abs(len1-len2) > cutoff_dist) {
+			//printf("length difference exceeds cutoff\n");
 			return cutoff_dist + 1;
+		}
 	}
 	
   /* strip common prefix */
@@ -2340,6 +2342,7 @@ lev_edit_distance(size_t len1, const lev_byte *string1,
       }
 			if(cutoff_dist > 0 && min_dist > cutoff_dist)
 			{
+				//printf("Invoking cutoff\n");
 				free(row);
 				return cutoff_dist+1;
 			}
